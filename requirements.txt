@@ -1,0 +1,10 @@
+playwright
+camoufox
+gradio
+beautifulsoup4
+openpyxl
+pytest
+pytest-asyncio
+black
+ruff
+mypy
