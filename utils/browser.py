@@ -10,6 +10,24 @@ from utils.anti_block import get_proxy_config
 
 logger = logging.getLogger(__name__)
 
+STEP: dict[str, str] = {
+    "CAMOUFOX_LAUNCH": "BRW.01",
+    "CHROMIUM_LAUNCH": "BRW.02",
+    "PROXY_CONFIG": "BRW.03",
+    "STORAGE_LOAD": "BRW.04",
+    "STORAGE_SAVE": "BRW.05",
+    "CTX_CREATE": "BRW.06",
+    "PAGE_CREATE": "BRW.07",
+    "ROUTE_SETUP": "BRW.08",
+    "CTX_CLOSE": "BRW.09",
+    "BROWSER_CLOSE": "BRW.10",
+}
+
+
+def _s(key: str) -> str:
+    return f"[{STEP[key]}]"
+
+
 DEFAULT_TIMEOUT: int = 30000
 
 BROWSER_DATA_DIR = os.path.join(tempfile.gettempdir(), "loker_scraper_browser_data")
@@ -45,6 +63,7 @@ async def create_browser(
 ) -> tuple[Any, Any]:
     from playwright.async_api import async_playwright
 
+    logger.info("%s Parse proxy config", _s("PROXY_CONFIG"))
     proxy_config = get_proxy_config(proxy_url)
 
     if use_chromium:
@@ -60,7 +79,11 @@ async def create_browser(
         if proxy_config is not None:
             launch_options["proxy"] = proxy_config
         browser = await pw.chromium.launch(**launch_options)
-        logger.info("Chromium fallback diluncurkan (headless=%s)", headless)
+        logger.info(
+            "%s Chromium diluncurkan (headless=%s)",
+            _s("CHROMIUM_LAUNCH"),
+            headless,
+        )
         return pw, browser
 
     from camoufox.async_api import AsyncCamoufox
@@ -73,24 +96,35 @@ async def create_browser(
 
     camoufox_ctx = AsyncCamoufox(**launch_kwargs)
     browser = await camoufox_ctx.__aenter__()
-    logger.info("Camoufox berhasil diluncurkan (headless=%s)", headless)
+    logger.info(
+        "%s Camoufox diluncurkan (headless=%s)",
+        _s("CAMOUFOX_LAUNCH"),
+        headless,
+    )
     if proxy_config is not None:
-        logger.debug("Proxy digunakan: %s", proxy_config.get("server", "unknown"))
+        logger.debug(
+            "%s Proxy: %s",
+            _s("PROXY_CONFIG"),
+            proxy_config.get("server", "unknown"),
+        )
 
     return camoufox_ctx, browser
 
 
 async def load_storage_state(context: Any) -> None:
     if not os.path.exists(STORAGE_STATE_FILE):
-        logger.info("Storage state tidak ditemukan, mulai fresh session")
+        logger.info(
+            "%s Storage state tidak ditemukan, fresh session",
+            _s("STORAGE_LOAD"),
+        )
         return
     try:
         with open(STORAGE_STATE_FILE, "r", encoding="utf-8") as f:
             state = json.load(f)
         await context.add_cookies(state.get("cookies", []))
-        logger.info("Storage state berhasil dimuat dari %s", STORAGE_STATE_FILE)
+        logger.info("%s Storage state dimuat", _s("STORAGE_LOAD"))
     except Exception as e:
-        logger.warning("Gagal memuat storage state: %s", e)
+        logger.warning("%s Gagal memuat storage state: %s", _s("STORAGE_LOAD"), e)
 
 
 async def save_storage_state(context: Any) -> None:
@@ -99,12 +133,13 @@ async def save_storage_state(context: Any) -> None:
         state = await context.storage_state()
         with open(STORAGE_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f)
-        logger.info("Storage state berhasil disimpan ke %s", STORAGE_STATE_FILE)
+        logger.info("%s Storage state disimpan", _s("STORAGE_SAVE"))
     except Exception as e:
-        logger.warning("Gagal menyimpan storage state: %s", e)
+        logger.warning("%s Gagal menyimpan storage state: %s", _s("STORAGE_SAVE"), e)
 
 
 async def create_context(browser: Any) -> Any:
+    logger.info("%s Membuat context baru", _s("CTX_CREATE"))
     context = await browser.new_context(
         viewport={"width": 1920, "height": 1080},
         locale="id-ID",
@@ -120,6 +155,7 @@ async def create_page_from_context(
     page.set_default_timeout(timeout)
     page.set_default_navigation_timeout(timeout)
     await setup_resource_blocking(page)
+    logger.info("%s Page + route blocking ready", _s("PAGE_CREATE"))
     return page
 
 
@@ -141,9 +177,9 @@ async def setup_resource_blocking(page: Any) -> None:
 async def close_context(context: Any) -> None:
     try:
         await context.close()
-        logger.debug("Context berhasil ditutup")
+        logger.info("%s Context ditutup", _s("CTX_CLOSE"))
     except Exception as e:
-        logger.error("Gagal menutup context: %s", e)
+        logger.error("%s Gagal menutup context: %s", _s("CTX_CLOSE"), e)
 
 
 async def close_browser(pw_ctx: Any, browser: Any) -> None:
@@ -158,4 +194,4 @@ async def close_browser(pw_ctx: Any, browser: Any) -> None:
             await pw_ctx.stop()
     except Exception:
         pass
-    logger.info("Browser berhasil ditutup")
+    logger.info("%s Browser ditutup", _s("BROWSER_CLOSE"))

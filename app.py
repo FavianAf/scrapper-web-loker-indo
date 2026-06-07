@@ -15,6 +15,18 @@ from scrapers.scraper_karir import ScraperKarir
 
 logger = logging.getLogger(__name__)
 
+STEP: dict[str, str] = {
+    "INIT": "APP.01",
+    "SCRAPE_CALL": "APP.02",
+    "THREAD_CRASH": "APP.03",
+    "NO_RESULTS": "APP.04",
+}
+
+
+def _s(key: str) -> str:
+    return f"[{STEP[key]}]"
+
+
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 
@@ -37,7 +49,6 @@ _active_cancel_event: threading.Event | None = None
 
 def scrape_handler(
     url: str,
-    headless: bool,
     proxy_url: str,
     max_links: int,
     max_pages: int,
@@ -61,8 +72,15 @@ def scrape_handler(
     def run_scraper() -> None:
         async def _run() -> None:
             proxy = proxy_url.strip() if proxy_url.strip() else None
+            logger.info(
+                "%s Init ScraperKarir: url=%s, proxy=%s, max_links=%d",
+                _s("INIT"),
+                url.strip(),
+                proxy,
+                max_links,
+            )
             scraper = ScraperKarir(
-                headless=headless,
+                headless=True,
                 proxy_url=proxy,
                 max_scroll=30,
                 max_links=int(max_links),
@@ -81,13 +99,7 @@ def scrape_handler(
             ) -> None:
                 q.put(("batch", (batch_idx, total_batches, completed, total, batch)))
 
-            logger.info(
-                "Mulai scraping: url=%s, headless=%s, proxy=%s, max_links=%d",
-                url.strip(),
-                headless,
-                proxy,
-                max_links,
-            )
+            logger.info("%s Mulai scraper.scrape()", _s("SCRAPE_CALL"))
 
             results = await scraper.scrape(
                 url.strip(),
@@ -97,7 +109,11 @@ def scrape_handler(
             )
 
             if not results:
-                logger.warning("Tidak ditemukan kontak di %s", url.strip())
+                logger.warning(
+                    "%s Tidak ditemukan kontak di %s",
+                    _s("NO_RESULTS"),
+                    url.strip(),
+                )
                 q.put(("done", []))
                 return
 
@@ -107,13 +123,34 @@ def scrape_handler(
                 f"Selesai! {len(results)} halaman diproses. "
                 f"Ditemukan {phones_found} nomor telepon dan {emails_found} email."
             )
-            logger.info("Scraping selesai: %d halaman diproses", len(results))
+            logger.info(
+                "%s Selesai: %d halaman diproses",
+                _s("SCRAPE_CALL"),
+                len(results),
+            )
             q.put(("done", summary))
 
         try:
             asyncio.run(_run())
         except Exception as e:
-            logger.error("Scraper thread error: %s", e)
+            logger.error("%s Scraper thread crash: %s", _s("THREAD_CRASH"), e)
+            q.put(
+                (
+                    "batch",
+                    (
+                        1,
+                        1,
+                        1,
+                        1,
+                        [
+                            ContactResult(
+                                url=url.strip(),
+                                error=f"{_s('THREAD_CRASH')} {type(e).__name__}: {e}",
+                            )
+                        ],
+                    ),
+                )
+            )
             q.put(("done", f"Error: {e}"))
 
     t = threading.Thread(target=run_scraper, daemon=True)
@@ -155,7 +192,14 @@ def scrape_handler(
                     (
                         current_table
                         if current_table
-                        else [["-", "-", "-", "Tidak ditemukan kontak di URL tersebut"]]
+                        else [
+                            [
+                                "-",
+                                "-",
+                                "-",
+                                "Tidak ditemukan kontak di URL tersebut",
+                            ]
+                        ]
                     ),
                     "Tidak ditemukan kontak di URL tersebut.",
                     show_scrape,
@@ -257,10 +301,6 @@ def build_ui() -> gr.Blocks:
             )
 
         with gr.Group():
-            headless_check = gr.Checkbox(
-                label="Headless Mode (dipakai jika tool jalan di lokal) default: True",
-                value=True,
-            )
             proxy_input = gr.Textbox(
                 label="Proxy URL (opsional)",
                 placeholder="http://user:pass@proxy:port",
@@ -300,19 +340,6 @@ def build_ui() -> gr.Blocks:
             json_btn = gr.DownloadButton("Export JSON")
 
         with gr.Row():
-            with gr.Accordion("Apa itu Headless Mode?", open=False):
-                gr.Markdown(
-                    "Jika **dicentang**, browser berjalan di **background** tanpa "
-                    "menampilkan window di layar.\n\n"
-                    "**Keuntungan:**\n"
-                    "- Lebih cepat dan ringan\n"
-                    "- Menghemat resource komputer\n\n"
-                    "**Jika dicentang off:**\n"
-                    "- Window browser akan muncul di layar\n"
-                    "- Anda bisa melihat proses scraping secara real-time\n"
-                    "- Berguna untuk debugging jika ada masalah"
-                )
-
             with gr.Accordion("Apa itu Proxy URL?", open=False):
                 gr.Markdown(
                     "Proxy adalah **perantara** antara komputer Anda dan website target.\n\n"
@@ -331,7 +358,8 @@ def build_ui() -> gr.Blocks:
             "**Tips:**\n"
             "- Semakin banyak link, semakin lama proses scraping.\n"
             "- Semakin spesifik input linknya, semakin cepat proses scraping.\n"
-            "- Alur: `Klik Mulai Scraping` -> `Harvest Link (Auto scroll)` -> `Scrape setiap link (ambil email & kontak)` -> `Tampilkan Hasil`.\n"
+            "- Alur: `Klik Mulai Scraping` -> `Harvest Link (Auto scroll)` -> "
+            "`Scrape setiap link (ambil email & kontak)` -> `Tampilkan Hasil`.\n"
             "\n"
             "**Dibuat dengan:** Python, Playwright, Gradio"
         )
@@ -340,7 +368,6 @@ def build_ui() -> gr.Blocks:
             fn=scrape_handler,
             inputs=[
                 url_input,
-                headless_check,
                 proxy_input,
                 max_links_slider,
                 max_pages_slider,
@@ -362,8 +389,10 @@ def build_ui() -> gr.Blocks:
     return app
 
 
+app = build_ui().queue()
+
+
 def main() -> None:
-    app = build_ui()
     app.launch(server_name="127.0.0.1", server_port=7890)
 
 

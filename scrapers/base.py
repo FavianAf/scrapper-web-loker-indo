@@ -25,6 +25,44 @@ from utils.browser import (
 
 logger = logging.getLogger(__name__)
 
+STEP: dict[str, str] = {
+    "BROWSER_INIT": "SCR.01",
+    "FALLBACK": "SCR.02",
+    "FATAL": "SCR.03",
+    "CLEANUP": "SCR.04",
+    "LISTING_CTX": "SCR.10",
+    "LISTING_LOAD_STATE": "SCR.11",
+    "LISTING_OPEN": "SCR.12",
+    "CF_CHECK": "SCR.13",
+    "CF_FAIL": "SCR.14",
+    "SCROLL": "SCR.15",
+    "PAGINATION": "SCR.16",
+    "HARVEST": "SCR.17",
+    "PAGINATION_VISIT": "SCR.18",
+    "LISTING_SAVE_STATE": "SCR.19",
+    "LISTING_CLOSE": "SCR.20",
+    "LISTING_TIMEOUT": "SCR.21",
+    "LISTING_ERROR": "SCR.22",
+    "BATCH_START": "SCR.30",
+    "BATCH_CTX": "SCR.31",
+    "BATCH_PAGE": "SCR.32",
+    "BATCH_GATHER": "SCR.33",
+    "BATCH_TIMEOUT": "SCR.34",
+    "BATCH_ERROR": "SCR.35",
+    "BATCH_CRASH": "SCR.36",
+    "DETAIL_GOTO": "SCR.40",
+    "DETAIL_BODY": "SCR.41",
+    "DETAIL_EXTRACT": "SCR.42",
+    "DETAIL_TIMEOUT": "SCR.43",
+    "DETAIL_ERROR": "SCR.44",
+    "DETAIL_PAGE_CLOSE": "SCR.45",
+}
+
+
+def _s(key: str) -> str:
+    return f"[{STEP[key]}]"
+
+
 MAX_SCROLL_ITERATIONS: int = 30
 STATIC_HEIGHT_THRESHOLD: int = 3
 MAX_LINKS: int = 100
@@ -127,6 +165,11 @@ class BaseScraper:
         self._use_chromium: bool = False
 
     async def _init_browser(self) -> None:
+        logger.info(
+            "%s Memulai browser (chromium=%s)",
+            _s("BROWSER_INIT"),
+            self._use_chromium,
+        )
         pw, browser = await create_browser(
             headless=self.headless,
             proxy_url=self.proxy_url,
@@ -136,6 +179,7 @@ class BaseScraper:
         self._browser = browser
 
     async def _cleanup(self) -> None:
+        logger.info("%s Cleanup browser", _s("CLEANUP"))
         if self._pw is not None and self._browser is not None:
             await close_browser(self._pw, self._browser)
             self._pw = None
@@ -153,7 +197,10 @@ class BaseScraper:
             if new_height == prev_height:
                 static_count += 1
                 if static_count >= STATIC_HEIGHT_THRESHOLD:
-                    logger.info("Scroll selesai — tinggi halaman tidak berubah")
+                    logger.info(
+                        "%s Scroll selesai — tinggi halaman tidak berubah",
+                        _s("SCROLL"),
+                    )
                     break
             else:
                 static_count = 0
@@ -186,19 +233,25 @@ class BaseScraper:
             is_cf = any(kw in title or kw in body for kw in cf_keywords)
             if not is_cf:
                 logger.info(
-                    "Cloudflare challenge resolved setelah %d detik",
+                    "%s Cloudflare OK — resolved setelah %d detik",
+                    _s("CF_CHECK"),
                     attempt * interval,
                 )
                 return True
 
             logger.info(
-                "Cloudflare challenge terdeteksi, menunggu... (%d/%d detik)",
+                "%s Cloudflare challenge terdeteksi (%d/%d detik)",
+                _s("CF_CHECK"),
                 (attempt + 1) * interval,
                 max_wait,
             )
             await asyncio.sleep(interval)
 
-        logger.warning("Cloudflare challenge tidak resolve dalam %d detik", max_wait)
+        logger.warning(
+            "%s Cloudflare challenge tidak resolve dalam %d detik",
+            _s("CF_FAIL"),
+            max_wait,
+        )
         return False
 
     def _is_ignored(self, href: str) -> bool:
@@ -270,7 +323,7 @@ class BaseScraper:
         )
 
         if not pagination_data:
-            logger.info("Tidak ditemukan pagination di halaman")
+            logger.info("%s Tidak ditemukan pagination", _s("PAGINATION"))
             return []
 
         seen: set[str] = set()
@@ -295,7 +348,11 @@ class BaseScraper:
         pages.sort(key=self._extract_page_number)
         pages = pages[: self.max_pages]
 
-        logger.info("Ditemukan %d halaman pagination", len(pages))
+        logger.info(
+            "%s Ditemukan %d halaman pagination",
+            _s("PAGINATION"),
+            len(pages),
+        )
         return pages
 
     async def _harvest_detail_links(self, page: Any) -> list[str]:
@@ -304,7 +361,12 @@ class BaseScraper:
                 return anchors.map(a => a.href);
             }""")
 
-        logger.info("Ditemukan %d tag <a> mentah di %s", len(all_hrefs), page.url)
+        logger.info(
+            "%s Ditemukan %d tag <a> mentah di %s",
+            _s("HARVEST"),
+            len(all_hrefs),
+            page.url,
+        )
 
         current_domain = urlparse(page.url).netloc
 
@@ -338,7 +400,8 @@ class BaseScraper:
         links = (priority + regular)[: self.max_links]
 
         logger.info(
-            "Ditemukan %d link (%d prioritas, %d regular), diambil %d",
+            "%s %d link (%d prioritas, %d regular), diambil %d",
+            _s("HARVEST"),
             len(priority) + len(regular),
             len(priority),
             len(regular),
@@ -353,25 +416,30 @@ class BaseScraper:
     ) -> ContactResult:
         result = ContactResult(url=url)
         try:
+            logger.info("%s goto %s", _s("DETAIL_GOTO"), url)
             await page.goto(url, wait_until="commit")
             await asyncio.sleep(3)
 
+            logger.info("%s Extract body: %s", _s("DETAIL_BODY"), url)
             text = await page.evaluate("document.body ? document.body.innerText : ''")
+
+            logger.info("%s Extract contacts: %s", _s("DETAIL_EXTRACT"), url)
             contacts = extract_contacts(text)
             result.phones = contacts["phones"]
             result.emails = contacts["emails"]
             logger.info(
-                "Halaman %s: %d telepon, %d email",
+                "%s %s: %d telepon, %d email",
+                _s("DETAIL_EXTRACT"),
                 url,
                 len(result.phones),
                 len(result.emails),
             )
         except PlaywrightTimeoutError:
-            msg = f"Timeout saat mengakses {url}"
+            msg = f"{_s('DETAIL_TIMEOUT')} Timeout 30s saat goto {url}"
             logger.error(msg)
             result.error = msg
         except Exception as e:
-            msg = f"Error saat mengakses {url}: {e}"
+            msg = f"{_s('DETAIL_ERROR')} {type(e).__name__}: {e} — pada {url}"
             logger.error(msg)
             result.error = msg
         return result
@@ -384,7 +452,15 @@ class BaseScraper:
         try:
             return await self._extract_from_detail_page(page, url)
         finally:
-            await page.close()
+            try:
+                await page.close()
+            except Exception as e:
+                logger.warning(
+                    "%s Gagal close page %s: %s",
+                    _s("DETAIL_PAGE_CLOSE"),
+                    url,
+                    e,
+                )
 
     async def _process_batch(
         self,
@@ -395,6 +471,11 @@ class BaseScraper:
         if cancel_event is not None and cancel_event.is_set():
             return []
 
+        logger.info(
+            "%s Membuat context untuk batch (%d link)",
+            _s("BATCH_CTX"),
+            len(batch_links),
+        )
         context = await create_context(browser)
         try:
             tasks = []
@@ -403,18 +484,47 @@ class BaseScraper:
                 tasks.append(self._extract_and_close_page(page, link))
 
             try:
+                logger.info(
+                    "%s gather %d task paralel",
+                    _s("BATCH_GATHER"),
+                    len(tasks),
+                )
                 results_raw = await asyncio.wait_for(
                     asyncio.gather(*tasks, return_exceptions=True),
                     timeout=90,
                 )
             except asyncio.TimeoutError:
-                logger.warning("Batch timeout setelah 90 detik, skip batch")
-                results_raw = []
+                logger.warning("%s Batch timeout setelah 90 detik", _s("BATCH_TIMEOUT"))
+                return [
+                    ContactResult(
+                        url=link,
+                        error=f"{_s('BATCH_TIMEOUT')} Batch timeout 90s",
+                    )
+                    for link in batch_links
+                ]
 
             if cancel_event is not None and cancel_event.is_set():
                 return []
 
-            return [r for r in results_raw if isinstance(r, ContactResult)]
+            converted: list[ContactResult] = []
+            for i, r in enumerate(results_raw):
+                if isinstance(r, ContactResult):
+                    converted.append(r)
+                elif isinstance(r, Exception):
+                    url = batch_links[i] if i < len(batch_links) else "unknown"
+                    logger.error(
+                        "%s Exception pada link %s: %s",
+                        _s("BATCH_GATHER"),
+                        url,
+                        r,
+                    )
+                    converted.append(
+                        ContactResult(
+                            url=url,
+                            error=f"{_s('BATCH_GATHER')} {type(r).__name__}: {r}",
+                        )
+                    )
+            return converted
         finally:
             for pg in context.pages:
                 try:
@@ -444,26 +554,47 @@ class BaseScraper:
             assert browser is not None
 
             try:
-                results = await self._scrape_inner(
-                    browser, start_url, progress_fn, cancel_event, on_batch_result
+                await self._scrape_inner(
+                    browser,
+                    start_url,
+                    results,
+                    progress_fn,
+                    cancel_event,
+                    on_batch_result,
                 )
             except Exception as e:
                 if self._use_chromium:
-                    logger.error("Chromium juga gagal: %s", e)
+                    logger.error("%s Chromium juga gagal: %s", _s("FATAL"), e)
                     raise
-                logger.warning("Camoufox crash: %s — retry dengan Chromium", e)
+                logger.warning(
+                    "%s Camoufox crash: %s — retry Chromium",
+                    _s("FALLBACK"),
+                    e,
+                )
+                results.clear()
                 await self._cleanup()
                 self._use_chromium = True
                 _progress(0.0, "Retry dengan Chromium...")
                 await self._init_browser()
                 browser = self._browser
                 assert browser is not None
-                results = await self._scrape_inner(
-                    browser, start_url, progress_fn, cancel_event, on_batch_result
+                await self._scrape_inner(
+                    browser,
+                    start_url,
+                    results,
+                    progress_fn,
+                    cancel_event,
+                    on_batch_result,
                 )
 
         except Exception as e:
-            logger.error("Fatal error saat scraping: %s", e)
+            logger.error("%s Fatal error: %s", _s("FATAL"), e)
+            results.append(
+                ContactResult(
+                    url=start_url,
+                    error=f"{_s('FATAL')} {type(e).__name__}: {e}",
+                )
+            )
         finally:
             await self._cleanup()
 
@@ -473,20 +604,23 @@ class BaseScraper:
         self,
         browser: Any,
         start_url: str,
+        results: list[ContactResult],
         progress_fn: Callable[[float, str], None] | None,
         cancel_event: threading.Event | None,
         on_batch_result: (
             Callable[[int, int, int, int, list[ContactResult]], None] | None
         ),
-    ) -> list[ContactResult]:
+    ) -> None:
         def _progress(pct: float, desc: str) -> None:
             if progress_fn is not None:
                 progress_fn(pct, desc)
 
-        results: list[ContactResult] = []
-
+        logger.info("%s Membuat listing context", _s("LISTING_CTX"))
         listing_context = await create_context(browser)
+
+        logger.info("%s Load storage state", _s("LISTING_LOAD_STATE"))
         await load_storage_state(listing_context)
+
         listing_page = await listing_context.new_page()
         listing_page.set_default_timeout(DEFAULT_TIMEOUT)
         listing_page.set_default_navigation_timeout(DEFAULT_TIMEOUT)
@@ -494,15 +628,23 @@ class BaseScraper:
 
         try:
             _progress(0.05, f"Membuka halaman direktori: {start_url}")
-            logger.info("Mengakses halaman direktori: %s", start_url)
+            logger.info("%s Membuka listing: %s", _s("LISTING_OPEN"), start_url)
             await listing_page.goto(start_url, wait_until="domcontentloaded")
 
+            logger.info("%s Cek Cloudflare", _s("CF_CHECK"))
             cf_passed = await self._wait_for_cloudflare(listing_page)
             if not cf_passed:
-                logger.error("Gagal melewati Cloudflare challenge untuk %s", start_url)
-                return results
+                logger.error("%s Cloudflare gagal untuk %s", _s("CF_FAIL"), start_url)
+                results.append(
+                    ContactResult(
+                        url=start_url,
+                        error=f"{_s('CF_FAIL')} Cloudflare challenge tidak resolve dalam 30 detik",
+                    )
+                )
+                return
 
-            logger.info("Page title: '%s'", await listing_page.title())
+            title = await listing_page.title()
+            logger.info("%s Page title: '%s'", _s("LISTING_OPEN"), title)
 
             _progress(0.08, "Scrolling halaman...")
             await self._scroll_to_bottom(listing_page)
@@ -525,7 +667,12 @@ class BaseScraper:
                         0.10,
                         f"Mengumpulkan link halaman {page_num}/{total_pages}...",
                     )
-                    logger.info("Mengakses halaman pagination: %s", pg_url)
+                    logger.info(
+                        "%s Pagination halaman %d: %s",
+                        _s("PAGINATION_VISIT"),
+                        page_num,
+                        pg_url,
+                    )
                     await listing_page.goto(pg_url, wait_until="domcontentloaded")
                     await self._wait_for_cloudflare(listing_page)
                     delay = get_random_delay()
@@ -537,25 +684,44 @@ class BaseScraper:
                         if link not in detail_links:
                             detail_links.append(link)
                     logger.info(
-                        "Halaman %d: +%d link baru (total %d)",
+                        "%s Halaman %d: +%d link baru (total %d)",
+                        _s("PAGINATION_VISIT"),
                         page_num,
                         len(detail_links) - before,
                         len(detail_links),
                     )
 
         except PlaywrightTimeoutError:
-            logger.error("Timeout saat mengakses halaman direktori: %s", start_url)
+            logger.error("%s Timeout listing: %s", _s("LISTING_TIMEOUT"), start_url)
+            results.append(
+                ContactResult(
+                    url=start_url,
+                    error=f"{_s('LISTING_TIMEOUT')} Timeout saat mengakses halaman direktori",
+                )
+            )
         except Exception as e:
-            logger.error("Error pada halaman direktori %s: %s", start_url, e)
+            logger.error("%s Error listing %s: %s", _s("LISTING_ERROR"), start_url, e)
+            results.append(
+                ContactResult(
+                    url=start_url,
+                    error=f"{_s('LISTING_ERROR')} {type(e).__name__}: {e}",
+                )
+            )
         finally:
+            logger.info("%s Save storage state", _s("LISTING_SAVE_STATE"))
             await save_storage_state(listing_context)
+            logger.info("%s Close listing context", _s("LISTING_CLOSE"))
             await listing_page.close()
             await close_context(listing_context)
 
         if not detail_links:
-            logger.warning("Tidak ditemukan link lowongan di %s", start_url)
+            logger.warning(
+                "%s Tidak ditemukan link lowongan di %s",
+                _s("HARVEST"),
+                start_url,
+            )
             _progress(1.0, "Tidak ditemukan link lowongan.")
-            return results
+            return
 
         total = len(detail_links)
         _progress(0.12, f"Ditemukan {total} link, mulai scraping...")
@@ -568,24 +734,55 @@ class BaseScraper:
 
         for bi, batch_links in enumerate(batches):
             if cancel_event is not None and cancel_event.is_set():
-                logger.info("Scraping dibatalkan.")
+                logger.info("%s Scraping dibatalkan", _s("BATCH_START"))
                 _progress(1.0, "Scraping dibatalkan.")
                 results.clear()
-                return results
+                return
 
             try:
+                logger.info(
+                    "%s Batch %d/%d start",
+                    _s("BATCH_START"),
+                    bi + 1,
+                    len(batches),
+                )
                 batch_results = await self._process_batch(
                     browser, batch_links, cancel_event
                 )
             except Exception as e:
                 error_msg = str(e)
-                if "Connection closed" in error_msg or (
+                is_crash = "Connection closed" in error_msg or (
                     "browser" in error_msg.lower() and "closed" in error_msg.lower()
-                ):
-                    logger.error("Browser crash saat batch %d — abort", bi + 1)
+                )
+                if is_crash:
+                    logger.error(
+                        "%s Browser crash saat batch %d — abort",
+                        _s("BATCH_CRASH"),
+                        bi + 1,
+                    )
+                    for remaining_batch in batches[bi + 1 :]:
+                        for link in remaining_batch:
+                            results.append(
+                                ContactResult(
+                                    url=link,
+                                    error=f"{_s('BATCH_CRASH')} Browser crash — link tidak terproses",
+                                )
+                            )
                     raise
-                logger.error("Batch %d/%d error: %s — skip", bi + 1, len(batches), e)
-                batch_results = []
+                logger.error(
+                    "%s Batch %d/%d error: %s",
+                    _s("BATCH_ERROR"),
+                    bi + 1,
+                    len(batches),
+                    e,
+                )
+                batch_results = [
+                    ContactResult(
+                        url=link,
+                        error=f"{_s('BATCH_ERROR')} {type(e).__name__}: {e}",
+                    )
+                    for link in batch_links
+                ]
 
             results.extend(batch_results)
             completed_count += len(batch_links)
@@ -601,4 +798,3 @@ class BaseScraper:
                 )
 
         _progress(1.0, f"Selesai! {len(results)} halaman diproses.")
-        return results
