@@ -1,0 +1,6 @@
+services:
+  scraper:
+    build: .
+    ports:
+      - "7890:7890"
+    restart: unless-stopped
