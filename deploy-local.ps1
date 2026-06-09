@@ -16,7 +16,8 @@ function Print-MainMenu {
     Write-Host "Pilih mode:" -ForegroundColor White
     Write-Host "  [1] Docker" -ForegroundColor Green
     Write-Host "  [2] Tanpa Docker" -ForegroundColor Green
-    Write-Host "  [3] Keluar" -ForegroundColor Green
+    Write-Host "  [3] Bersihkan Cache & Log" -ForegroundColor Green
+    Write-Host "  [4] Keluar" -ForegroundColor Green
     Write-Host ""
 }
 
@@ -38,6 +39,19 @@ function Print-PythonMenu {
     Write-Host "  [2] Jalankan saja" -ForegroundColor Green
     Write-Host "  [3] Update (git pull)" -ForegroundColor Green
     Write-Host "  [4] Kembali" -ForegroundColor Yellow
+    Write-Host ""
+}
+
+function Print-CleanupMenu {
+    Write-Host ""
+    Write-Host "--- Bersihkan Cache & Log ---" -ForegroundColor Cyan
+    Write-Host "  [1] Bersihkan semua" -ForegroundColor Green
+    Write-Host "  [2] Bersihkan Python cache saja (__pycache__, .pytest_cache, .ruff_cache, *.pyc)" -ForegroundColor Green
+    Write-Host "  [3] Bersihkan Log saja (*.log)" -ForegroundColor Green
+    Write-Host "  [4] Bersihkan Browser temp data (cookies, leaked profiles)" -ForegroundColor Green
+    Write-Host "  [5] Bersihkan pip cache" -ForegroundColor Green
+    Write-Host "  [6] Bersihkan Docker cache (build cache + unused images)" -ForegroundColor Green
+    Write-Host "  [7] Kembali" -ForegroundColor Yellow
     Write-Host ""
 }
 
@@ -258,6 +272,97 @@ function Python-Update {
     Write-Host ""
 }
 
+function Cleanup-PythonCache {
+    Write-Host "Membersihkan Python cache..." -ForegroundColor Yellow
+
+    $dirs = Get-ChildItem -Path $ScriptDir -Recurse -Directory -Include "__pycache__",".pytest_cache",".ruff_cache" -ErrorAction SilentlyContinue
+    $count = 0
+    foreach ($d in $dirs) {
+        Remove-Item $d.FullName -Recurse -Force
+        $count++
+    }
+
+    $files = Get-ChildItem -Path $ScriptDir -Recurse -File -Include "*.pyc","*.pyo" -ErrorAction SilentlyContinue
+    foreach ($f in $files) {
+        Remove-Item $f.FullName -Force
+        $count++
+    }
+
+    Write-Host "  Dihapus: $count item" -ForegroundColor Green
+}
+
+function Cleanup-Logs {
+    Write-Host "Membersihkan file log..." -ForegroundColor Yellow
+
+    $files = Get-ChildItem -Path $ScriptDir -Recurse -File -Include "*.log" -ErrorAction SilentlyContinue
+    $count = 0
+    foreach ($f in $files) {
+        Remove-Item $f.FullName -Force
+        $count++
+    }
+
+    Write-Host "  Dihapus: $count file log" -ForegroundColor Green
+}
+
+function Cleanup-BrowserTemp {
+    Write-Host "Membersihkan browser temp data..." -ForegroundColor Yellow
+
+    $tempDir = $env:TEMP
+    $count = 0
+
+    $browserDataDir = Join-Path $tempDir "loker_scraper_browser_data"
+    if (Test-Path $browserDataDir) {
+        Remove-Item $browserDataDir -Recurse -Force
+        Write-Host "  Dihapus: loker_scraper_browser_data" -ForegroundColor Green
+        $count++
+    }
+
+    $leakedProfiles = Get-ChildItem -Path $tempDir -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "^playwright.*profile" }
+    foreach ($p in $leakedProfiles) {
+        Remove-Item $p.FullName -Recurse -Force
+        $count++
+    }
+
+    $leakedExports = Get-ChildItem -Path $tempDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "^tmp.*\.(csv|xlsx|json)$" }
+    foreach ($e in $leakedExports) {
+        Remove-Item $e.FullName -Force
+        $count++
+    }
+
+    Write-Host "  Dihapus: $count item" -ForegroundColor Green
+}
+
+function Cleanup-PipCache {
+    Write-Host "Membersihkan pip cache..." -ForegroundColor Yellow
+    python -m pip cache purge 2>$null
+    Write-Host "  Pip cache dibersihkan." -ForegroundColor Green
+}
+
+function Cleanup-DockerCache {
+    Write-Host "Membersihkan Docker cache..." -ForegroundColor Yellow
+
+    if (-not (Test-DockerRunning)) {
+        Write-Host "  Docker tidak berjalan, skip." -ForegroundColor Red
+        return
+    }
+
+    docker system prune -af 2>$null
+    docker builder prune -af 2>$null
+    Write-Host "  Docker cache dibersihkan." -ForegroundColor Green
+}
+
+function Cleanup-All {
+    Write-Host "Membersihkan semua..." -ForegroundColor Cyan
+    Cleanup-PythonCache
+    Cleanup-Logs
+    Cleanup-BrowserTemp
+    Cleanup-PipCache
+    Cleanup-DockerCache
+    Write-Host ""
+    Write-Host "Selesai! Semua cache dan log dibersihkan." -ForegroundColor Green
+    Write-Host ""
+}
+
 function Main {
     Print-Header
 
@@ -296,6 +401,23 @@ function Main {
                 }
             }
             "3" {
+                while ($true) {
+                    Print-CleanupMenu
+                    $choice = Read-Host "Pilihan"
+                    switch ($choice) {
+                        "1" { Cleanup-All }
+                        "2" { Cleanup-PythonCache; Write-Host "" }
+                        "3" { Cleanup-Logs; Write-Host "" }
+                        "4" { Cleanup-BrowserTemp; Write-Host "" }
+                        "5" { Cleanup-PipCache; Write-Host "" }
+                        "6" { Cleanup-DockerCache; Write-Host "" }
+                        "7" { break }
+                        default { Write-Host "Pilihan tidak valid." -ForegroundColor Red }
+                    }
+                    if ($choice -eq "7") { break }
+                }
+            }
+            "4" {
                 Write-Host "Sampai jumpa!" -ForegroundColor Green
                 exit 0
             }

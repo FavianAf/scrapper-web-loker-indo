@@ -23,8 +23,20 @@ print_menu() {
     echo -e "  ${GREEN}[1]${NC} Install baru (setup Docker + build + run)"
     echo -e "  ${GREEN}[2]${NC} Update (git pull + rebuild)"
     echo -e "  ${GREEN}[3]${NC} Stop container"
-    echo -e "  ${GREEN}[4]${NC} Lihat logs"
-    echo -e "  ${GREEN}[5]${NC} Keluar"
+    echo -e "  ${GREEN}[4]${NC} Bersihkan Cache & Log"
+    echo -e "  ${GREEN}[5]${NC} Lihat logs"
+    echo -e "  ${GREEN}[6]${NC} Keluar"
+    echo ""
+}
+
+print_cleanup_menu() {
+    echo ""
+    echo -e "${CYAN}--- Bersihkan Cache & Log ---${NC}"
+    echo -e "  ${GREEN}[1]${NC} Bersihkan semua"
+    echo -e "  ${GREEN}[2]${NC} Bersihkan Python cache saja (__pycache__, .pytest_cache, .ruff_cache, *.pyc)"
+    echo -e "  ${GREEN}[3]${NC} Bersihkan Log saja (*.log)"
+    echo -e "  ${GREEN}[4]${NC} Bersihkan Docker cache (build cache + unused images)"
+    echo -e "  ${GREEN}[5]${NC} Kembali"
     echo ""
 }
 
@@ -148,6 +160,73 @@ action_logs() {
     docker compose -f "$COMPOSE_FILE" logs -f
 }
 
+cleanup_python_cache() {
+    echo -e "${YELLOW}Membersihkan Python cache...${NC}"
+    count=0
+
+    while IFS= read -r -d '' dir; do
+        rm -rf "$dir"
+        ((count++))
+    done < <(find "$REPO_DIR" -type d \( -name "__pycache__" -o -name ".pytest_cache" -o -name ".ruff_cache" \) -print0 2>/dev/null)
+
+    while IFS= read -r -d '' file; do
+        rm -f "$file"
+        ((count++))
+    done < <(find "$REPO_DIR" -type f \( -name "*.pyc" -o -name "*.pyo" \) -print0 2>/dev/null)
+
+    echo -e "  ${GREEN}Dihapus: $count item${NC}"
+}
+
+cleanup_logs() {
+    echo -e "${YELLOW}Membersihkan file log...${NC}"
+    count=0
+
+    while IFS= read -r -d '' file; do
+        rm -f "$file"
+        ((count++))
+    done < <(find "$REPO_DIR" -type f -name "*.log" -print0 2>/dev/null)
+
+    echo -e "  ${GREEN}Dihapus: $count file log${NC}"
+}
+
+cleanup_docker_cache() {
+    echo -e "${YELLOW}Membersihkan Docker cache...${NC}"
+
+    if ! check_docker; then
+        echo -e "  ${RED}Docker tidak terinstall, skip.${NC}"
+        return
+    fi
+
+    docker system prune -af 2>/dev/null || true
+    docker builder prune -af 2>/dev/null || true
+    echo -e "  ${GREEN}Docker cache dibersihkan.${NC}"
+}
+
+cleanup_all() {
+    echo -e "${CYAN}Membersihkan semua...${NC}"
+    cleanup_python_cache
+    cleanup_logs
+    cleanup_docker_cache
+    echo ""
+    echo -e "${GREEN}Selesai! Semua cache dan log dibersihkan.${NC}"
+    echo ""
+}
+
+action_cleanup() {
+    while true; do
+        print_cleanup_menu
+        read -p "Pilihan: " choice
+        case "$choice" in
+            1) cleanup_all ;;
+            2) cleanup_python_cache; echo "" ;;
+            3) cleanup_logs; echo "" ;;
+            4) cleanup_docker_cache; echo "" ;;
+            5) return ;;
+            *) echo -e "${RED}Pilihan tidak valid.${NC}" ;;
+        esac
+    done
+}
+
 main() {
     print_header
 
@@ -158,8 +237,9 @@ main() {
             1) action_install ;;
             2) action_update ;;
             3) action_stop ;;
-            4) action_logs ;;
-            5) echo -e "${GREEN}Sampai jumpa!${NC}"; exit 0 ;;
+            4) action_cleanup ;;
+            5) action_logs ;;
+            6) echo -e "${GREEN}Sampai jumpa!${NC}"; exit 0 ;;
             *) echo -e "${RED}Pilihan tidak valid.${NC}" ;;
         esac
     done
