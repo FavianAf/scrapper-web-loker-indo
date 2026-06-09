@@ -65,6 +65,11 @@ def scrape_handler(
         )
         return
 
+    env_max_links = int(os.environ.get("MAX_LINKS", "500"))
+    env_max_pages = int(os.environ.get("MAX_PAGES", "20"))
+    max_links = min(int(max_links), env_max_links)
+    max_pages = min(int(max_pages), env_max_pages)
+
     cancel_event = threading.Event()
     _active_cancel_event = cancel_event
 

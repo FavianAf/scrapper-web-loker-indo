@@ -84,6 +84,10 @@ SERVER_PORT=7890
 | `AUTH_USERS` | `admin:admin` | Daftar user, format `user:pass,user2:pass2` |
 | `SERVER_NAME` | `127.0.0.1` | `0.0.0.0` untuk Docker/VPS, `127.0.0.1` untuk lokal |
 | `SERVER_PORT` | `7890` | Port yang digunakan |
+| `MAX_SCROLL` | `30` | Maksimal iterasi scroll per halaman |
+| `MAX_LINKS` | `100` | Maksimal link yang di-scrape (env menang vs slider UI) |
+| `MAX_CONCURRENT` | `3` | Jumlah tab paralel per batch |
+| `MAX_PAGES` | `10` | Maksimal halaman pagination |
 
 ## Menjalankan Manual
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import threading
 from dataclasses import dataclass, field
@@ -63,11 +64,11 @@ def _s(key: str) -> str:
     return f"[{STEP[key]}]"
 
 
-MAX_SCROLL_ITERATIONS: int = 30
+DEFAULT_MAX_SCROLL: int = 30
 STATIC_HEIGHT_THRESHOLD: int = 3
-MAX_LINKS: int = 100
-MAX_CONCURRENT: int = 3
-MAX_PAGES: int = 10
+DEFAULT_MAX_LINKS: int = 100
+DEFAULT_MAX_CONCURRENT: int = 3
+DEFAULT_MAX_PAGES: int = 10
 
 JOB_LINK_PATTERNS: list[str] = [
     "/job/",
@@ -150,16 +151,25 @@ class BaseScraper:
         base_url: str,
         headless: bool = True,
         proxy_url: str | None = None,
-        max_scroll: int = MAX_SCROLL_ITERATIONS,
-        max_links: int = MAX_LINKS,
-        max_pages: int = MAX_PAGES,
+        max_scroll: int | None = None,
+        max_links: int | None = None,
+        max_pages: int | None = None,
     ) -> None:
         self.base_url = base_url
         self.headless = headless
         self.proxy_url = proxy_url
-        self.max_scroll = max_scroll
-        self.max_links = max_links
-        self.max_pages = max_pages
+        self.max_scroll = max_scroll or int(
+            os.environ.get("MAX_SCROLL", str(DEFAULT_MAX_SCROLL))
+        )
+        self.max_links = max_links or int(
+            os.environ.get("MAX_LINKS", str(DEFAULT_MAX_LINKS))
+        )
+        self.max_pages = max_pages or int(
+            os.environ.get("MAX_PAGES", str(DEFAULT_MAX_PAGES))
+        )
+        self._max_concurrent = int(
+            os.environ.get("MAX_CONCURRENT", str(DEFAULT_MAX_CONCURRENT))
+        )
         self._pw: Any = None
         self._browser: Any = None
         self._use_chromium: bool = False
@@ -727,8 +737,8 @@ class BaseScraper:
         _progress(0.12, f"Ditemukan {total} link, mulai scraping...")
 
         batches = [
-            detail_links[i : i + MAX_CONCURRENT]
-            for i in range(0, total, MAX_CONCURRENT)
+            detail_links[i : i + self._max_concurrent]
+            for i in range(0, total, self._max_concurrent)
         ]
         completed_count = 0
 
