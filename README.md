@@ -29,39 +29,80 @@ Tool otomatis untuk mengekstrak nomor telepon dan email dari halaman lowongan ke
 | Parsing | BeautifulSoup4, Regex |
 | Deployment | Docker + Docker Compose |
 
-## Menjalankan dengan Docker (Recommended)
+## Menjalankan dengan Deploy Script
+
+### Lokal (Windows)
+
+```powershell
+.\deploy-local.ps1
+```
+
+Menu interaktif:
+```
+[1] Jalankan dengan Docker
+[2] Jalankan tanpa Docker (Python langsung)
+[3] Update (git pull + rebuild Docker)
+[4] Stop container
+[5] Lihat logs
+[6] Keluar
+```
+
+### VPS (Linux)
 
 ```bash
-# Build dan jalankan
+chmod +x deploy-vps.sh
+./deploy-vps.sh
+```
+
+Menu interaktif:
+```
+[1] Install baru (setup Docker + build + run)
+[2] Update (git pull + rebuild)
+[3] Stop container
+[4] Lihat logs
+[5] Keluar
+```
+
+### Konfigurasi
+
+Salin file template lalu edit:
+
+```bash
+cp .env.example .env
+```
+
+Isi `.env`:
+
+```
+AUTH_USERS=admin:password123,user1:rahasia456
+SERVER_NAME=0.0.0.0
+SERVER_PORT=7890
+```
+
+| Variable | Default | Keterangan |
+|---|---|---|
+| `AUTH_USERS` | `admin:admin` | Daftar user, format `user:pass,user2:pass2` |
+| `SERVER_NAME` | `127.0.0.1` | `0.0.0.0` untuk Docker/VPS, `127.0.0.1` untuk lokal |
+| `SERVER_PORT` | `7890` | Port yang digunakan |
+
+## Menjalankan Manual
+
+### Docker (Recommended)
+
+```bash
 docker compose up -d --build
-
-# Lihat logs
 docker compose logs -f
-
-# Stop
 docker compose down
 ```
 
-Buka `http://localhost:7890` di browser.
-
-### Setelah ada perubahan kode
+### Tanpa Docker (Lokal)
 
 ```bash
-docker compose up -d --build
-```
-
-## Menjalankan Tanpa Docker (Lokal)
-
-```bash
-# Buat virtual environment
 python -m venv venv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # Linux/Mac
 
-# Install dependencies
 pip install -r requirements.txt
-
-# Install browser binaries
 playwright install chromium
 python -m camoufox fetch
 
@@ -94,6 +135,10 @@ ScrappingWebLoker/
 ├── Dockerfile                      # Docker image definition
 ├── docker-compose.yml              # Docker Compose config
 ├── .dockerignore                   # Exclude files dari build context
+├── deploy-vps.sh                   # Deploy script Linux (VPS)
+├── deploy-local.ps1                # Deploy script Windows (Lokal)
+├── .env.example                    # Template konfigurasi auth
+├── .gitignore                      # Exclude .env, __pycache__, dll
 ├── scrapers/
 │   ├── base.py                     # BaseScraper — logika utama scraping + step tracing
 │   ├── scraper_karir.py            # ScraperKarir — portal karir.com

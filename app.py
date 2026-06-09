@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import queue
 import tempfile
 import threading
@@ -389,11 +390,30 @@ def build_ui() -> gr.Blocks:
     return app
 
 
+def _parse_auth_users() -> list[tuple[str, str]]:
+    raw = os.environ.get("AUTH_USERS", "")
+    if raw:
+        users = []
+        for pair in raw.split(","):
+            parts = pair.strip().split(":")
+            if len(parts) == 2:
+                users.append((parts[0].strip(), parts[1].strip()))
+        if users:
+            return users
+    return [("admin", "admin")]
+
+
 app = build_ui().queue()
 
 
 def main() -> None:
-    app.launch(server_name="0.0.0.0", server_port=7890)
+    server_name = os.environ.get("SERVER_NAME", "127.0.0.1")
+    server_port = int(os.environ.get("SERVER_PORT", "7890"))
+    app.launch(
+        server_name=server_name,
+        server_port=server_port,
+        auth=_parse_auth_users(),
+    )
 
 
 if __name__ == "__main__":

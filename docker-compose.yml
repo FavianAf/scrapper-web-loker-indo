@@ -4,3 +4,5 @@ services:
     ports:
       - "7890:7890"
     restart: unless-stopped
+    env_file:
+      - .env

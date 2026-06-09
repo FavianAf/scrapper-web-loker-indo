@@ -3,6 +3,8 @@ __pycache__/
 .ruff_cache/
 .git/
 .gitignore
+.env
+.env.example
 venv/
 env/
 .venv/
